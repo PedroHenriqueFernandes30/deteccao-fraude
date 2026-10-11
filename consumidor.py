@@ -7,6 +7,7 @@ from confluent_kafka import Consumer, KafkaException
 
 from kafka_config import SERVIDOR, TOPICO, preparar_topico
 from banco import CAMINHO_BANCO, abrir_banco, salvar_transacao
+from modelo import normalizar_transacao
 
 
 def main():
@@ -36,7 +37,7 @@ def main():
                 raise KafkaException(mensagem.error())
             transacao = json.loads(mensagem.value().decode("utf-8"))
             alertas, nova = salvar_transacao(banco, transacao)
-            print("\nRECEBIDA:", json.dumps(transacao, ensure_ascii=False), flush=True)
+            print("\nRECEBIDA:", json.dumps(normalizar_transacao(transacao), ensure_ascii=False), flush=True)
             print("BANCO:", "salva" if nova else "já registrada", flush=True)
             print("ALERTAS:", ", ".join(alertas) if alertas else "nenhum", flush=True)
             # Só confirma no Kafka depois que o banco concluiu a gravação.

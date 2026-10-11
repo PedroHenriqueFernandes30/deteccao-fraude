@@ -31,7 +31,7 @@ def main():
             transacao = gerar_transacao()
             produtor.produce(
                 TOPICO,
-                key=transacao["cliente_id"].encode("utf-8"),
+                key=transacao["id_cliente"].encode("utf-8"),
                 value=json.dumps(transacao, ensure_ascii=False).encode("utf-8"),
                 on_delivery=confirmar_envio,
             )

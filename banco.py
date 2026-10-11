@@ -2,9 +2,10 @@
 
 import json
 import sqlite3
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+
+from modelo import id_cliente_legado, instante_transacao, normalizar_transacao
 
 
 CAMINHO_BANCO = Path(__file__).resolve().parent / "transacoes.db"
@@ -19,11 +20,21 @@ def abrir_banco(caminho=CAMINHO_BANCO):
             amount_centavos INTEGER NOT NULL,
             cidade TEXT NOT NULL,
             data_hora TEXT NOT NULL,
+            country TEXT NOT NULL DEFAULT 'BR',
             instante REAL NOT NULL,
             alertas TEXT NOT NULL,
             dados_originais TEXT NOT NULL
         )
     """)
+    colunas = {coluna[1] for coluna in banco.execute("PRAGMA table_info(transacoes)")}
+    if "country" not in colunas:
+        # O primeiro produtor usava apenas cidades brasileiras.
+        with banco:
+            banco.execute("ALTER TABLE transacoes ADD COLUMN country TEXT NOT NULL DEFAULT 'BR'")
+            for numero in range(1, 6):
+                nome = f"cliente-{numero:02d}"
+                banco.execute("UPDATE transacoes SET cliente_id = ? WHERE cliente_id = ?",
+                              (id_cliente_legado(nome), nome))
     banco.execute("""
         CREATE INDEX IF NOT EXISTS historico_cliente
         ON transacoes (cliente_id, instante)
@@ -34,18 +45,19 @@ def abrir_banco(caminho=CAMINHO_BANCO):
 
 def salvar_transacao(banco, transacao):
     """Retorna (alertas, nova). Reentregas do mesmo id não duplicam a compra."""
-    horario = datetime.fromisoformat(transacao["data_hora"])
-    if horario.tzinfo is None:
-        raise ValueError("data_hora precisa informar o fuso horário")
-    instante = horario.timestamp()
-    valor = Decimal(str(transacao["amount"]))
+    original = transacao
+    transacao = normalizar_transacao(original)
+    instante = instante_transacao(transacao["hora"])
+    valor = Decimal(str(transacao["valor"]))
+    if not valor.is_finite() or valor < 0:
+        raise ValueError("valor precisa ser finito e positivo ou zero")
     centavos = valor * 100
-    if not valor.is_finite() or valor < 0 or centavos != centavos.to_integral_value():
-        raise ValueError("amount precisa ser positivo ou zero, com até duas casas decimais")
+    if centavos != centavos.to_integral_value():
+        raise ValueError("valor precisa ter até duas casas decimais")
 
     with banco:
         existente = banco.execute(
-            "SELECT alertas FROM transacoes WHERE id = ?", (transacao["id"],)
+            "SELECT alertas FROM transacoes WHERE id = ?", (transacao["id_transacao"],)
         ).fetchone()
         if existente:
             return json.loads(existente[0]), False
@@ -53,7 +65,7 @@ def salvar_transacao(banco, transacao):
         historico = banco.execute("""
             SELECT instante, cidade FROM transacoes
             WHERE cliente_id = ? AND instante >= ? AND instante <= ?
-        """, (transacao["cliente_id"], instante - 600, instante)).fetchall()
+        """, (transacao["id_cliente"], instante - 600, instante)).fetchall()
 
         alertas = []
         if valor >= 10000:
@@ -64,17 +76,17 @@ def salvar_transacao(banco, transacao):
         if recentes >= 3:
             alertas.append("TEMPO_60s")
 
-        if any(cidade != transacao["cidade"] for _, cidade in historico):
+        if any(cidade != transacao["city"] for _, cidade in historico):
             alertas.append("GEO_10m")
 
         banco.execute("""
             INSERT INTO transacoes
             (id, cliente_id, amount_centavos, cidade, data_hora, instante,
-             alertas, dados_originais)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             alertas, dados_originais, country)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            transacao["id"], transacao["cliente_id"], int(centavos),
-            transacao["cidade"], transacao["data_hora"], instante,
-            json.dumps(alertas), json.dumps(transacao, ensure_ascii=False),
+            transacao["id_transacao"], transacao["id_cliente"], int(centavos),
+            transacao["city"], transacao["hora"], instante,
+            json.dumps(alertas), json.dumps(original, ensure_ascii=False), transacao["country"],
         ))
     return alertas, True

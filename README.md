@@ -4,7 +4,7 @@ Projeto de estudo em Python. O produtor gera transações aleatórias e publica
 no Kafka; o consumidor recebe as mensagens, salva todas em SQLite e mostra
 detalhes e alertas de possível fraude no console.
 
-## Executar a primeira etapa
+## Testar apenas o gerador
 
 Abra um terminal nesta pasta e execute:
 
@@ -13,20 +13,36 @@ python transacoes.py
 ```
 
 Uma nova transação aparece a cada 3 segundos. Use Ctrl+C para encerrar.
-Esta etapa usa apenas a biblioteca padrão do Python.
+Esse comando mostra o JSON sem publicar no Kafka e usa apenas a biblioteca
+padrão do Python. Para executar o sistema completo, siga as etapas abaixo.
 
-## Formato provisório
+## Formato das transações
 
-O enunciado menciona um padrão, mas não fornece seus campos. Até receber esse
-modelo, usamos:
+As mensagens seguem o modelo fornecido no enunciado:
 
 | Campo | Significado |
 | --- | --- |
-| id | Identificador único da transação |
-| cliente_id | Um dos cinco clientes simulados |
-| amount | Valor em reais, entre 1,00 e 15.000,00 |
-| cidade | Uma das quatro cidades simuladas |
-| data_hora | Data e hora em UTC, no formato ISO 8601 |
+| id_transacao | UUID único da transação |
+| id_cliente | UUID de um dos cinco clientes simulados |
+| valor | Valor em reais, entre 1,00 e 15.000,00 |
+| country | País: BR |
+| city | Uma das quatro cidades simuladas |
+| hora | Data e hora ISO 8601, sem fuso explícito, conforme o exemplo do enunciado |
+
+```json
+{
+  "id_transacao": "62c4b403-a909-4c56-a790-b4380422d723",
+  "id_cliente": "650c2b2b-e711-4e24-b523-7391f7dac3c3",
+  "valor": 9500.0,
+  "country": "BR",
+  "city": "São Paulo",
+  "hora": "2025-10-08T14:32:00"
+}
+```
+
+Neste exercício, hora sem fuso explícito é interpretada como UTC-03.
+Os UUIDs dos clientes são estáveis entre execuções, permitindo acompanhar
+o histórico. Cada transação recebe um novo UUID.
 
 Há poucos clientes para permitir repetições durante a demonstração.
 As cidades e os valores também são aleatórios; uma execução curta não garante
@@ -52,15 +68,15 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## Entrega
+## Validação e entrega
 
-O consumidor atualizado foi verificado conectado ao Kafka: as transações
+O fluxo Kafka → consumidor → SQLite foi verificado manualmente: as transações
 foram salvas e os três tipos de alerta apareceram na consulta ao banco.
-Ainda é necessário confirmar o formato exigido pelo professor e publicar
-o repositório no GitHub.
+A atualização do formato foi verificada por testes automatizados, incluindo
+a leitura de mensagens antigas e a atualização do banco existente.
 
-Faça commits conforme concluir etapas reais do projeto. A entrega exige
-pelo menos quatro commits no GitHub.
+A entrega exige pelo menos quatro commits no GitHub. O histórico do projeto
+registra a estrutura, o produtor, a persistência com regras e os testes.
 
 ## Executar produtor e consumidor
 
@@ -77,7 +93,7 @@ No segundo execute:
 & .\.venv\Scripts\python.exe produtor.py
 ```
 
-O produtor mostra ENVIADA e o consumidor mostra RECEBIDA, com o mesmo id.
+O produtor mostra ENVIADA e o consumidor mostra RECEBIDA, com o mesmo id_transacao.
 Use Ctrl+C em cada janela para encerrar. O tópico transacoes é criado pelos
 programas se ainda não existir. O consumidor usa um grupo fixo e retoma do
 último ponto confirmado; na primeira execução lê desde o início do tópico.
@@ -91,13 +107,20 @@ Nas próximas execuções retoma do último ponto confirmado. Mantenha o arquivo
 transacoes.db junto ao projeto: os pontos de leitura do Kafka dependem desse
 histórico. Apagar o banco não faz o Kafka reenviar automaticamente as mensagens.
 
+Para quem executou o primeiro formato do projeto, o consumidor também aceita
+as mensagens antigas. O banco existente recebe o campo country e os UUIDs
+dos clientes são atualizados automaticamente, mantendo os registros e alertas.
+Os dados originais recebidos continuam guardados sem alteração. As colunas
+internas do SQLite conservam seus nomes para manter compatibilidade; as novas
+mensagens publicadas usam os seis campos do enunciado.
+
 Para um teste curto, use --limite 3 em ambos os programas.
 
 ## Regras e interpretações
 
 | Alerta | Condição |
 | --- | --- |
-| ALTO_VALOR | amount maior ou igual a 10000 |
+| ALTO_VALOR | valor maior ou igual a 10000 (amount no texto da regra) |
 | TEMPO_60s | Pelo menos quatro transações do mesmo cliente em menos de 60 segundos, incluindo a atual |
 | GEO_10m | Uma transação anterior do mesmo cliente em outra cidade, há no máximo 600 segundos |
 
